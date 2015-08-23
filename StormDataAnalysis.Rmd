@@ -9,6 +9,10 @@ knitr::opts_chunk$set(cache=TRUE)
 
 ## Synopsis
 
+This report performs an analysis of [NOAA Storm Event Data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2) that has 902,297 storm event observations for 37 variables.  Documentation for the storm data can be found [here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).  The analysis uses 7 variables from the data set to determine which storm events cause the most fatalities and injuries to people and the most economic damage with respect to property and crops.  
+The data for the analysis was processed to consolidate common weather event types and for damage exponent data that is applied to property and crop base damage amounts.
+The results will show that tornados, heat and flooding are the top three weather events that are most fatal to people.  In terms of economic damage flood, hurricane and tornado were the most costly.  
+
 ## Data Processing  
 
 
@@ -122,7 +126,7 @@ length(harmfulEvents)
 
 #### Cleaning the Property and Crop Damage Exponents
 
-I could not find a code book for the NOAA Storm Data this discussed property and crop damage codes but based on the [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) example damage amounts listed in the examples as 50K or 2.5M I believe the valid codes are as follows:
+I could not find a code book for the NOAA Storm Data that discussed property and crop damage codes but based on the [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) damage amounts were listed in the examples as 50K or 2.5M I believe the valid codes are as follows:
 
 - B or b - Billions (damage amount x 10^9^)
 - M or m - Millions (damage amount x 10^6^)
@@ -131,15 +135,102 @@ I could not find a code book for the NOAA Storm Data this discussed property and
 
 Any exponent codes that do not fall into the above codes will be changed to an exponent of 0 (base damage amount x 10^0^ = base damage amount x 1).
 
+Let's check the scope of the data that does **not** have "good" exponents.
 
 ```{r}
+## Define a list of good exponent codes
 goodExp = c("h", "H", "k", "K", "m", "M", "b", "B")
+
+
+## All property damage values > 0 with bad codes
+badPropertyDamage <- 
+    stormData[!(stormData$PROPDMGEXP %in% goodExp) & stormData$PROPDMG != 0,]$PROPDMG
+
+## All crop damage values > 0 with bad codes
+badCropDamage <- 
+    stormData[!(stormData$CROPDMGEXP %in% goodExp) & stormData$CROPDMG != 0,]$CROPDMG
+
 ```
+
+
+Total observation count effected by bad codes for property and crop damage is only 335 out of nearly 1 million observations.  
+
+
+```{r}
+
+c(length(badPropertyDamage), length(badCropDamage))
+```
+
+
+A summary of the damage data effected by bad exponent codes.
+
+```{r}
+
+## Summary of bad property damage
+summary(badPropertyDamage)
+
+## Summary of bad crop damage
+summary(badCropDamage)
+
+## List the unique Property Damage Exponents
+unique(stormData$PROPDMGEXP)
+
+## List the unique Crop Damage Exponents
+unique(stormData$CROPDMGEXP)
+
+```
+
+
+The property and crop damage exponents will be cleaned as follows:
+
+1. Convert all exponents to uppercase.
+2. Convert all bad exponents to a base multiplier of 1.
+3. Convert all "B" expoents to a base multiplier of 10^9^.
+4. Convert all "M" expoents to a base multiplier of 10^6^.
+5. Convert all "K" expoents to a base multiplier of 10^3^.
+6. Convert all "H" expoents to a base multiplier of 10^2^.
+7. Compute a PropertyDamage variable = base amount * multiplier.
+8. Compute a CropDamage variable = base amount * multiplier.
+9. Compute a TotalDamage variable = PropertyDamage + CropDamage.
+
+```{r}
+## Convert all exponents to uppercase.
+stormData$PROPDMGEXP <- toupper(stormData$PROPDMGEXP)
+stormData$CROPDMGEXP <- toupper(stormData$CROPDMGEXP)
+
+## Convert all bad exponents to a base multiplier of 1.
+##... Create a DamageMultiplier that will be update for all except bad exponents.
+stormData$PropertyDamageMultiplier <- 1
+stormData$CropDamageMultiplier <- 1
+
+## Convert all "B" expoents to a base multiplier of 10^9^.
+stormData[stormData$PROPDMGEXP == "B",]$PropertyDamageMultiplier <- 10^9
+stormData[stormData$CROPDMGEXP == "B",]$CropDamageMultiplier <- 10^9
+
+## Convert all "M" expoents to a base multiplier of 10^6^.
+stormData[stormData$PROPDMGEXP == "M",]$PropertyDamageMultiplier <- 10^6
+stormData[stormData$CROPDMGEXP == "M",]$CropDamageMultiplier <- 10^6
+
+## Convert all "K" expoents to a base multiplier of 10^3^.
+stormData[stormData$PROPDMGEXP == "K",]$PropertyDamageMultiplier <- 10^3
+stormData[stormData$CROPDMGEXP == "K",]$CropDamageMultiplier <- 10^3
+
+## Convert all "H" expoents to a base multiplier of 10^2^.
+stormData[stormData$PROPDMGEXP == "H",]$PropertyDamageMultiplier <- 10^2
+## There is no "H" exponent for crops.
+
+## Compute a PropertyDamage variable = base amount * multiplier.
+stormData$PropertyDamage <- stormData$PROPDMG * stormData$PropertyDamageMultiplier
+
+## Compute a CropDamage variable = base amount * multiplier.
+stormData$CropDamage <- stormData$CROPDMG * stormData$CropDamageMultiplier
+```
+
 
 ## Results 
 
 
-### Fatalities and Injuries by Event Type
+### Fatalities and Injuries by Weather Event Type
 
 
 When determining what type of weather event is the most harmful to people the data could be sorted by fatalities, injuries or a combined total.  A review of the data below sorted by fatalities and again by injuries shows that both top 10 lists are very close.  The top 5 have the same events with a different order, i.e., a higher death toll correlates to higher injury rates.  
@@ -164,7 +255,7 @@ head(fatalitiesByEvent, n=10)
 ```
 
 
-Since death is a more serious than injury (you can't come back from death) I'm going to sort the data by fataities and plot.
+Since death is a more serious than injury (you can't come back from death) the data is going to be sorted by fataities and ploted.
 
 
 ```{r}
@@ -191,3 +282,74 @@ ggplot(meltTop10,aes(x = EventType, y = value, fill=variable)) +
                          labels=c("Total Fatalities", "Total Injuries"))
 ```
 
+By far the most harmful weather event to people is **tornados** followed by heat and flooding.  
+
+
+### Property and Crop Damage Amounts by Weather Event Type
+
+Group the property and crop damage by weather event type.
+```{r}
+
+damageByEvent <- aggregate.data.frame(
+    list(PropertyDamage = stormData$PropertyDamage, CropDamage = stormData$CropDamage), 
+    list(EventType = stormData$EVTYPE), 
+    sum, na.rm = TRUE )
+damageByEvent <- damageByEvent[!(damageByEvent$PropertyDamage == 0 & 
+                                 damageByEvent$CropDamage == 0),]
+damageByEvent$TotalDamage <- damageByEvent$PropertyDamage + damageByEvent$CropDamage
+
+```
+
+Sort results by Property Damage and review the top 10.
+```{r}
+damageByEvent <- damageByEvent[order(-damageByEvent$PropertyDamage),]
+head(damageByEvent, n=10)
+```
+
+Sort results by Crop Damage and review the top 10.
+```{r}
+damageByEvent <- damageByEvent[order(-damageByEvent$CropDamage),]
+head(damageByEvent, n=10)
+```
+
+Sort results by Total Damage and review the top 10.
+```{r}
+damageByEvent <- damageByEvent[order(-damageByEvent$TotalDamage),]
+head(damageByEvent, n=10)
+```
+
+
+The above results show that there are some weather events that can greatly effect property or crops but not both.  For example when sorting by property damage tornadoes are in the top 3 but does not make the top 10 when sorted by crop damage.  
+  
+When the list is sorted by total damage the top 10 shows events that have impacts on property and crops.  For this reason the top 10 shown in the plot below are sorted by the total combined property and crop damage.
+
+
+```{r}
+## Get the top 10 damage results sorted by total damages.
+damageByEvent <- damageByEvent[order(-damageByEvent$TotalDamage),]
+top10Damage <- damageByEvent[1:10,1:3]
+
+## Convert dollar amounts to millions (M) for display purposes
+top10Damage$PropertyDamage <- top10Damage$PropertyDamage / 10^6
+top10Damage$CropDamage <- top10Damage$CropDamage / 10^6
+
+## Melt the data for plotting
+meltTop10Damage <- melt(top10Damage[,c("EventType","PropertyDamage","CropDamage")],
+                        id.vars = c("EventType"))
+
+## Set factor to effect event type order by value
+meltTop10Damage$EventType <- factor(meltTop10Damage$EventType,levels=unique(meltTop10Damage$EventType))
+
+## Show the plot
+ggplot(meltTop10Damage,aes(x = EventType, y = value, fill=variable)) + 
+    geom_bar(position = "dodge", stat="identity", binwidth=1) + 
+    ggtitle("Most Harmful Weather Events to Property and Crops (1950-2011)") + 
+    labs(x = "Event Type", y = "Total Damaged in Millions USD") +
+    theme(axis.text.x=element_text(angle=45,hjust=1)) +
+    scale_fill_discrete(name="",
+                         breaks=c("PropertyDamage", "CropDamage"),
+                         labels=c("Property Damage", "Crop Damage"))
+```
+
+
+In terms of economic effects **flooding** causes the most damage followed by hurricanes, tornados and storm surge.  

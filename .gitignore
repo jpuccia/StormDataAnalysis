@@ -1,0 +1,9 @@
+.Rproj.user/*
+
+data/*
+
+StormDataAnalysis_cache/*
+
+TestCode.R
+
+StormDataAnalysis.Rproj

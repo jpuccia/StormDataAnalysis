@@ -1,0 +1,193 @@
+---
+title: "Most Harmful Storm Data Events for Health and Economic Consequences"
+date: "August 22, 2015"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+## Synopsis
+
+## Data Processing  
+
+
+### Loading the data  
+
+The steps for loading the data are as follows:   
+  
+1. Create a **data** folder in the working directory if one does not already exist.  
+2. If the the storm data csv file does not exist then download the zip file and unzip it.  
+3. Load the data into a variable named **stormData**.  
+  
+```{r}
+
+## Make sure a folder exists for the data
+if (!file.exists("data")){
+    dir.create("data")
+}
+
+## Download the zip file if the csv file does not exist
+if (!file.exists("data/repdata-data-StormData.csv"))
+{
+    ## Download the zipfile and unzip
+    library(R.utils)
+    download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "data/repdata-data-StormData.csv.bz2", method="curl")
+    bunzip2(filename = "data/repdata-data-StormData.csv.bz2")
+}
+
+stormData <- read.csv("data/repdata-data-StormData.csv")
+
+```
+
+### Select the subset of the data we need to examine
+
+Our analysis asks us to answer two questions with respect to weather events.
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are **most harmful with respect to population health**?
+
+2. Across the United States, which types of events have the **greatest economic consequences**?
+
+To answer these questions we will need to examine the follow variables from the Storm Data:
+
+- EVTYPE - The event type (Tornado, Thunderstorm, ...)
+- FATALITIES - The number of fatalities for a weather event observation.
+- INJURIES - The number of injuries for a weather event observation.
+- PROPDMG - The base amount in USD for property damage.
+- PROPDMGEXP - Exponent code applied to base property damage amount. (e.g., 5.0 K = $5,000)
+- CROPDMG - The base amount in USD for crop damage.
+- CROPDMGEXP - Exponent code applied to base property damage amount. (e.g., 5.0 < = $5,000,000)
+
+```{r}
+## Identify the variable we want to keep
+keepVars <- c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+
+## Slice the Storm Data down to the variable that we need
+stormData <- stormData[keepVars]
+```
+
+
+### Cleaning up the data
+
+The data needs to be cleaned with respect to the Event Types and the Property and Crop Damage Exponents.  Refer to the corresponding sections below.
+
+#### Cleaning up event types
+
+There are 985 different event types.  For this analysis we are only concerned about harmful events where there were fatalities, injuries, property or crop damage.  For that subset of data there are 488 different event types as shown by the code below.
+
+```{r}
+length(unique(stormData$EVTYPE))
+harmfulEvents <- sort(unique(stormData[stormData$FATALITIES > 0 | stormData$INJURIES > 0 | 
+              stormData$PROPDMG > 0 | stormData$CROPDMG > 0,]$EVTYPE))
+length(harmfulEvents)
+```
+
+Of the 488 harmful events many are misspelled or in a different case and most have a different event type for the same type of event or event category.  I will consolidate the events with the following processing:
+
+1. Trim the event types and convert all to uppercase.
+2. Group event types for the following type of events: Cold, Heat, Snow, Tornado, Thunderstorm, Hurricane, Avalanche, Floods, High Winds, Lightning, and Mud Slides.
+
+```{r}
+library(R.utils, quietly = TRUE)
+
+## Trim and convert to uppercase
+stormData$EVTYPE <- toupper(trim(stormData$EVTYPE))
+
+## Group event types
+stormData$EVTYPE[grep("MUD",stormData$EVTYPE)] = "MUD"
+stormData$EVTYPE[grep("AVALAN",stormData$EVTYPE)] = "AVALANCHE"
+stormData$EVTYPE[grep("HEAT",stormData$EVTYPE)] = "HEAT"
+stormData$EVTYPE[grep("COLD",stormData$EVTYPE)] = "COLD"
+stormData$EVTYPE[grep("SNOW",stormData$EVTYPE)] = "SNOW"
+stormData$EVTYPE[grep("HIGH WIND",stormData$EVTYPE)] = "HIGH WIND"
+stormData$EVTYPE[grep("LIGHTNING",stormData$EVTYPE)] = "LIGHTNING"
+stormData$EVTYPE[grep("FLOOD",stormData$EVTYPE)] = "FLOOD"
+stormData$EVTYPE[grep("HURRICANE",stormData$EVTYPE)] = "HURRICANE"
+stormData$EVTYPE[grep("TROPICAL STORM",stormData$EVTYPE)] = "TROPICAL STORM"
+stormData$EVTYPE[grep("TORNADO",stormData$EVTYPE)] = "TORNADO"
+stormData$EVTYPE[c(grep("THUNDERSTORM",stormData$EVTYPE), 
+                   grep("^TSTM",stormData$EVTYPE))] = "THUNDERSTORM"
+
+```
+
+Now we are down to a more reasonable 205 harmful events.
+
+```{r}
+harmfulEvents <- sort(unique(stormData[stormData$FATALITIES > 0 | stormData$INJURIES > 0 | 
+              stormData$PROPDMG > 0 | stormData$CROPDMG > 0,]$EVTYPE))
+length(harmfulEvents)
+
+```
+
+
+#### Cleaning the Property and Crop Damage Exponents
+
+I could not find a code book for the NOAA Storm Data this discussed property and crop damage codes but based on the [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) example damage amounts listed in the examples as 50K or 2.5M I believe the valid codes are as follows:
+
+- B or b - Billions (damage amount x 10^9^)
+- M or m - Millions (damage amount x 10^6^)
+- K or k - Thousands (damage amount x 10^3^)
+- H or h - Hundreds (damage amount x 10^2^)
+
+Any exponent codes that do not fall into the above codes will be changed to an exponent of 0 (base damage amount x 10^0^ = base damage amount x 1).
+
+
+```{r}
+goodExp = c("h", "H", "k", "K", "m", "M", "b", "B")
+```
+
+## Results 
+
+
+### Fatalities and Injuries by Event Type
+
+
+When determining what type of weather event is the most harmful to people the data could be sorted by fatalities, injuries or a combined total.  A review of the data below sorted by fatalities and again by injuries shows that both top 10 lists are very close.  The top 5 have the same events with a different order, i.e., a higher death toll correlates to higher injury rates.  
+
+
+```{r}
+fatalitiesByEvent <- aggregate.data.frame(
+    list(TotalFatalities = stormData$FATALITIES, TotalInjuries = stormData$INJURIES), 
+    list(EventType = stormData$EVTYPE), 
+    sum, na.rm = TRUE )
+fatalitiesByEvent <- fatalitiesByEvent[!(fatalitiesByEvent$TotalInjuries == 0 & 
+                                         fatalitiesByEvent$TotalFatalities == 0),]
+fatalitiesByEvent$Total <- fatalitiesByEvent$TotalInjuries + fatalitiesByEvent$TotalFatalities
+
+## Sort by Total Fatalities
+fatalitiesByEvent <- fatalitiesByEvent[order(-fatalitiesByEvent$TotalFatalities),]
+head(fatalitiesByEvent, n=10)
+
+## Sort by Total Injuries
+fatalitiesByEvent <- fatalitiesByEvent[order(-fatalitiesByEvent$TotalInjuries),]
+head(fatalitiesByEvent, n=10)
+```
+
+
+Since death is a more serious than injury (you can't come back from death) I'm going to sort the data by fataities and plot.
+
+
+```{r}
+library(reshape2)
+library(ggplot2)
+## Get the Top 10 sorted by fatalities
+fatalitiesByEvent <- fatalitiesByEvent[order(-fatalitiesByEvent$TotalFatalities),]
+top10Fatalities <- fatalitiesByEvent[1:10,]
+
+## Melt the data for plotting
+meltTop10 <- melt(top10Fatalities[,c("EventType","TotalFatalities","TotalInjuries")],id.vars = c("EventType"))
+
+## Set factor to effect event type order by value
+meltTop10$EventType <- factor(meltTop10$EventType,levels=unique(meltTop10$EventType))
+
+## Show the plot
+ggplot(meltTop10,aes(x = EventType, y = value, fill=variable)) + 
+    geom_bar(position = "dodge", stat="identity", binwidth=1) + 
+    ggtitle("Most Harmful Weather Events to Population Health (1950-2011)") + 
+    labs(x = "Event Type", y = "Totals by Event Type") +
+    theme(axis.text.x=element_text(angle=45,hjust=1)) +
+    scale_fill_discrete(name="",
+                         breaks=c("TotalFatalities", "TotalInjuries"),
+                         labels=c("Total Fatalities", "Total Injuries"))
+```
+
